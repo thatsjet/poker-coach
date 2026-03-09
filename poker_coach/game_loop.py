@@ -127,22 +127,20 @@ class GameLoop:
         return actions
 
     def resolve_npc_actions_after_hero(self) -> list[dict[str, Any]]:
-        """Resolve remaining NPC actions after hero in the action order.
+        """Resolve remaining NPC actions after hero acts.
 
-        Implements a proper betting round: if any NPC raises, we loop back
-        through all players who still need to act (including hero via return).
-        Returns the action log and a boolean indicating if hero needs to act again.
+        Processes all NPCs who haven't matched the current bet, starting from
+        the seat after hero and wrapping around. This ensures limpers before
+        hero in the action order still face a raise.
         """
         order = self.get_action_order()
         actions: list[dict[str, Any]] = []
 
-        hero_found = False
-        for seat in order:
-            if seat == self.hero_seat:
-                hero_found = True
-                continue
-            if not hero_found:
-                continue
+        # Build full-circle order starting after hero
+        hero_idx = order.index(self.hero_seat)
+        rotated = order[hero_idx + 1:] + order[:hero_idx]
+
+        for seat in rotated:
             result = self._resolve_single_npc(seat)
             if result:
                 actions.append(result)

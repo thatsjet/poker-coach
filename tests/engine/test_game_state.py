@@ -171,12 +171,13 @@ class TestGameStateSetup:
         assert "current_bet" in d
         assert "min_raise" in d
 
-    def test_to_dict_excludes_hero_from_players(self):
+    def test_to_dict_includes_hero_in_players(self):
         gs = self._make_state()
         gs.start_hand()
         d = gs.to_dict(hero_seat=0)
-        seats = [p["seat"] for p in d["players"]]
-        assert 0 not in seats
+        hero_entries = [p for p in d["players"] if p["is_hero"]]
+        assert len(hero_entries) == 1
+        assert hero_entries[0]["seat"] == 0
 
     def test_current_bet_after_start_hand(self):
         gs = self._make_state()

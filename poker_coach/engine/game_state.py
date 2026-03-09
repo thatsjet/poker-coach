@@ -114,10 +114,8 @@ class GameState:
         positions = self.get_positions()
         hero = self.players[hero_seat]
 
-        other_players = []
+        all_players = []
         for p in self.players:
-            if p.seat == hero_seat:
-                continue
             if p.has_folded:
                 status = "folded"
             elif p.is_all_in:
@@ -126,7 +124,7 @@ class GameState:
                 status = "out"
             else:
                 status = "active"
-            other_players.append(
+            all_players.append(
                 {
                     "seat": p.seat,
                     "name": p.name,
@@ -135,6 +133,7 @@ class GameState:
                     "stack": p.stack,
                     "current_bet": p.current_bet,
                     "status": status,
+                    "is_hero": p.seat == hero_seat,
                 }
             )
 
@@ -146,7 +145,7 @@ class GameState:
             "community_cards": [str(c) for c in self.community_cards],
             "pot": self.pot,
             "hero_stack": hero.stack,
-            "players": other_players,
+            "players": all_players,
             "current_bet": self.current_bet,
             "min_raise": self.min_raise,
         }

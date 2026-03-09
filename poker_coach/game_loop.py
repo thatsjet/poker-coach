@@ -126,12 +126,17 @@ class GameLoop:
                 actions.append(result)
         return actions
 
-    def resolve_npc_actions_after_hero(self) -> list[dict[str, Any]]:
+    def resolve_npc_actions_after_hero(
+        self, pre_acted_seats: set[int] | None = None
+    ) -> list[dict[str, Any]]:
         """Resolve remaining NPC actions after hero acts.
 
         Loops through all NPCs (starting after hero, wrapping around) until
         every NPC has matched the current bet or folded. Handles re-raise wars
         between NPCs within a single betting round.
+
+        pre_acted_seats: seats that already acted before hero this round —
+        they'll be skipped unless they need to respond to a raise.
         """
         order = self.get_action_order()
         actions: list[dict[str, Any]] = []
@@ -140,7 +145,7 @@ class GameLoop:
         hero_idx = order.index(self.hero_seat)
         rotated = order[hero_idx + 1:] + order[:hero_idx]
 
-        has_acted: set[int] = set()
+        has_acted: set[int] = set(pre_acted_seats) if pre_acted_seats else set()
         max_iterations = 20  # Safety valve
         for _ in range(max_iterations):
             acted_this_round = False

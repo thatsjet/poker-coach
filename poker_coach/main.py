@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 import click
 from rich.console import Console
 
@@ -68,7 +70,7 @@ def parse_user_action(text: str, game_state_dict: dict) -> tuple[str, int]:
 def run_session(config: SessionConfig) -> None:
     """Run a complete poker coaching session."""
     loop = GameLoop(config)
-    coach = CoachClient(show_archetypes=config.show_archetypes)
+    coach = CoachClient(show_archetypes=config.show_archetypes, num_players=config.num_players)
     logger = SessionLogger(
         output_dir="sessions",
         seed=config.seed,
@@ -99,8 +101,9 @@ def run_session(config: SessionConfig) -> None:
 
         # Process each street
         while loop.game_state.street != "showdown":
-            # Resolve NPC actions before hero
+            # Resolve NPC actions before hero (track who acted for after-hero phase)
             npc_actions = loop.resolve_npc_actions_until_hero()
+            pre_acted_seats = {a["seat"] for a in npc_actions}
             for a in npc_actions:
                 action_text = f"{a['name']} {a['action']}s"
                 if a["amount"] > 0:
@@ -156,6 +159,18 @@ def run_session(config: SessionConfig) -> None:
                 while True:
                     user_input = get_user_action()
                     action, amount = coach.parse_action(user_input, state_dict)
+
+                    # Not a poker action — treat as conversation with coach
+                    if action == "none":
+                        console.print("[bold blue]Coach:[/bold blue] ", end="")
+                        state_text = format_state_for_coach(state_dict)
+                        for chunk in coach.get_coaching_stream(
+                            state_text, user_message=user_input
+                        ):
+                            console.print(chunk, end="")
+                        console.print()
+                        continue
+
                     console.print(
                         f"[dim]→ {action}"
                         f"{f' to {amount}' if amount > 0 and action not in ('fold', 'check') else ''}"
@@ -206,7 +221,7 @@ def run_session(config: SessionConfig) -> None:
                     break
 
                 # Resolve NPC actions after hero
-                npc_actions = loop.resolve_npc_actions_after_hero()
+                npc_actions = loop.resolve_npc_actions_after_hero(pre_acted_seats)
                 for a in npc_actions:
                     action_text = f"{a['name']} {a['action']}s"
                     if a["amount"] > 0:
@@ -354,7 +369,12 @@ def main(seed: str | None) -> None:
         console.print("Session cancelled.")
         return
 
-    run_session(config)
+    while True:
+        run_session(config)
+        if not click.confirm("\nWould you like to play these settings again?", default=True):
+            break
+        config.seed = secrets.token_hex(8)
+        console.print()
 
 
 if __name__ == "__main__":

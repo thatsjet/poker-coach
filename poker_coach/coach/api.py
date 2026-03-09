@@ -14,11 +14,11 @@ class CoachClient:
     """
 
     def __init__(
-        self, show_archetypes: bool, model: str = "claude-sonnet-4-20250514"
+        self, show_archetypes: bool, num_players: int = 6, model: str = "claude-sonnet-4-20250514"
     ) -> None:
         self.client = anthropic.Anthropic()
         self.model = model
-        self.system_prompt = build_system_prompt(show_archetypes)
+        self.system_prompt = build_system_prompt(show_archetypes, num_players)
         self.conversation_history: list[dict[str, str]] = []
         self.hand_summaries: list[str] = []
 
@@ -112,14 +112,16 @@ class CoachClient:
             f"Game state: pot={game_state_dict['pot']}, current_bet={game_state_dict['current_bet']}, "
             f"hero_stack={game_state_dict['hero_stack']}, min_raise={game_state_dict['min_raise']}\n\n"
             f"User said: \"{user_input}\"\n\n"
-            "Return JSON: {\"action\": \"fold|check|call|raise\", \"amount\": <int>}\n"
+            "Return JSON: {\"action\": \"fold|check|call|raise|none\", \"amount\": <int>}\n"
             "Rules:\n"
             "- fold/check: amount=0\n"
             "- call: amount=current_bet\n"
             "- raise/bet: amount=total bet size (e.g. 'bet the pot' means amount=pot size, "
             "'raise to 60' means amount=60, 'bet half pot' means amount=pot/2, "
             "'all in'/'shove'/'jam' means amount=hero_stack+current_bet)\n"
-            "- If sizing is ambiguous, pick the most standard interpretation"
+            "- If sizing is ambiguous, pick the most standard interpretation\n"
+            "- none: amount=0 — use this when the input is NOT a poker action "
+            "(e.g. a question, comment, feedback, or conversation with the coach)"
         )
         response = self.client.messages.create(
             model=self.model,

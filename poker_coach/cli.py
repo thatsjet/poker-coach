@@ -55,6 +55,7 @@ def display_game_state(
     console.print()
     table = Table(title="Table")
     table.add_column("Seat", style="cyan")
+    table.add_column("Player")
     table.add_column("Position", style="yellow")
     if show_archetypes:
         table.add_column("Type", style="magenta")
@@ -63,11 +64,14 @@ def display_game_state(
     table.add_column("Status")
 
     for p in players_info:
-        row = [str(p["seat"]), p["position"]]
+        is_hero = p.get("is_hero", False)
+        name = "★ Hero" if is_hero else p.get("name", "")
+        row = [str(p["seat"]), name, p["position"]]
         if show_archetypes:
-            row.append(p["archetype"])
+            row.append("—" if is_hero else p["archetype"])
         row.extend([str(p["stack"]), str(p["current_bet"]), p["status"]])
-        table.add_row(*row)
+        style = "bold white" if is_hero else None
+        table.add_row(*row, style=style)
 
     console.print(table)
     console.print(f"[bold]Pot:[/bold] {pot}")

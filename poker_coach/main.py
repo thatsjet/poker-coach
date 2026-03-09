@@ -178,6 +178,17 @@ def run_session(config: SessionConfig) -> None:
                     action_desc += f" to {amount}"
                 hand_log_parts.append(action_desc)
 
+                # If hero folded, get brief coach comment and end the hand
+                if action == "fold":
+                    state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+                    state_text = format_state_for_coach(state_dict)
+                    user_msg = f"I fold. {user_input}"
+                    console.print("[bold blue]Coach:[/bold blue] ", end="")
+                    for chunk in coach.get_coaching_stream(state_text, user_message=user_msg):
+                        console.print(chunk, end="")
+                    console.print()
+                    break
+
                 # Get coach evaluation (streaming)
                 state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
                 state_text = format_state_for_coach(state_dict)
@@ -222,6 +233,10 @@ def run_session(config: SessionConfig) -> None:
                     continue
                 else:
                     break
+
+            # If hero folded, skip remaining streets and go straight to resolution
+            if hero.has_folded:
+                break
 
             if loop.is_hand_over():
                 break

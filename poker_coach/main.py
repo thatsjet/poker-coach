@@ -234,8 +234,17 @@ def run_session(config: SessionConfig) -> None:
                 else:
                     break
 
-            # If hero folded, skip remaining streets and go straight to resolution
+            # If hero folded, let NPCs play out remaining streets
             if hero.has_folded:
+                while not loop.is_hand_over() and loop.game_state.street != "showdown":
+                    npc_actions = loop.resolve_full_betting_round_npcs_only()
+                    for a in npc_actions:
+                        action_text = f"{a['name']} {a['action']}s"
+                        if a["amount"] > 0:
+                            action_text += f" to {a['amount']}"
+                        console.print(f"  {action_text}")
+                    if not loop.is_hand_over():
+                        loop.advance_street()
                 break
 
             if loop.is_hand_over():

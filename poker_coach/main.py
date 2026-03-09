@@ -31,6 +31,21 @@ def parse_user_action(text: str, game_state_dict: dict) -> tuple[str, int]:
         return ("call", game_state_dict["current_bet"])
     if text.startswith("raise") or text.startswith("bet"):
         parts = text.split()
+        pot = game_state_dict["pot"]
+        # Handle fractional pot sizing — "half pot", "1/2 pot", "2/3 pot", "3/4 pot"
+        if "half" in parts:
+            return ("raise", pot // 2)
+        for part in parts:
+            if "/" in part:
+                try:
+                    num, den = part.split("/")
+                    frac = int(num) / int(den)
+                    return ("raise", int(pot * frac))
+                except (ValueError, ZeroDivisionError):
+                    pass
+        # Handle bare "pot" keyword — bet/raise the full pot
+        if "pot" in parts:
+            return ("raise", pot)
         for part in parts:
             if part in ("raise", "bet", "to"):
                 continue
@@ -137,10 +152,15 @@ def run_session(config: SessionConfig) -> None:
 
             # Hero action loop — handles re-raises requiring hero response
             while True:
-                # Get hero action with validation
+                # Get hero action — AI parses natural language
                 while True:
                     user_input = get_user_action()
-                    action, amount = parse_user_action(user_input, state_dict)
+                    action, amount = coach.parse_action(user_input, state_dict)
+                    console.print(
+                        f"[dim]→ {action}"
+                        f"{f' to {amount}' if amount > 0 and action not in ('fold', 'check') else ''}"
+                        f"[/dim]"
+                    )
 
                     to_call = loop.game_state.current_bet - hero.current_bet
                     if action == "check" and to_call > 0:

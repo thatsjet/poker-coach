@@ -121,3 +121,18 @@ def best_five_card_hand(cards: list[Card]) -> HandRank:
     if len(cards) < 5 or len(cards) > 7:
         raise ValueError(f"Expected 5-7 cards, got {len(cards)}")
     return max(evaluate_hand(list(combo)) for combo in itertools.combinations(cards, 5))
+
+
+def determine_winners(players: list, community_cards: list[Card]) -> list:
+    """Determine winner(s) from active players. Returns list (split pot if tied)."""
+    best_rank: HandRank | None = None
+    winners = []
+    for player in players:
+        all_cards = player.hole_cards + community_cards
+        rank = best_five_card_hand(all_cards)
+        if best_rank is None or rank > best_rank:
+            best_rank = rank
+            winners = [player]
+        elif rank == best_rank:
+            winners.append(player)
+    return winners

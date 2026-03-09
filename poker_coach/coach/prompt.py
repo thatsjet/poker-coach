@@ -44,13 +44,8 @@ def build_system_prompt(show_archetypes: bool) -> str:
 def format_state_for_coach(state_dict: dict) -> str:
     """Format a game state dict into readable text for the coach.
 
-    Args:
-        state_dict: Dictionary containing game state fields such as hand_number,
-            street, position, hole_cards, board, pot, stack, opponent_stack,
-            current_bet, and min_raise.
-
-    Returns:
-        A human-readable string describing the current game state.
+    Supports both direct key format (position, hole_cards, board, stack)
+    and GameState.to_dict() format (hero_position, hero_cards, community_cards, hero_stack).
     """
     lines = []
 
@@ -60,24 +55,38 @@ def format_state_for_coach(state_dict: dict) -> str:
     if "street" in state_dict:
         lines.append(f"Street: {state_dict['street']}")
 
-    if "position" in state_dict:
-        lines.append(f"Position: {state_dict['position']}")
+    position = state_dict.get("hero_position") or state_dict.get("position")
+    if position:
+        lines.append(f"Position: {position}")
 
-    if "hole_cards" in state_dict:
-        cards = " ".join(state_dict["hole_cards"])
+    hero_cards = state_dict.get("hero_cards") or state_dict.get("hole_cards")
+    if hero_cards:
+        cards = " ".join(hero_cards)
         lines.append(f"Hole Cards: {cards}")
 
-    if "board" in state_dict:
-        board = " ".join(state_dict["board"]) if state_dict["board"] else "(none)"
-        lines.append(f"Board: {board}")
+    board = state_dict.get("community_cards") or state_dict.get("board")
+    if board is not None:
+        board_str = " ".join(board) if board else "(none)"
+        lines.append(f"Board: {board_str}")
 
     if "pot" in state_dict:
         lines.append(f"Pot: {state_dict['pot']}")
 
-    if "stack" in state_dict:
-        lines.append(f"Your Stack: {state_dict['stack']}")
+    stack = state_dict.get("hero_stack") or state_dict.get("stack")
+    if stack is not None:
+        lines.append(f"Your Stack: {stack}")
 
-    if "opponent_stack" in state_dict:
+    if "players" in state_dict:
+        lines.append("\nOpponents:")
+        for p in state_dict["players"]:
+            name = p.get("name", f"Seat {p['seat']}")
+            pos = p.get("position", "?")
+            archetype = p.get("archetype", "?")
+            pstack = p.get("stack", "?")
+            bet = p.get("current_bet", 0)
+            status = p.get("status", "?")
+            lines.append(f"  {name} ({pos}) — {archetype} — stack: {pstack} — bet: {bet} — {status}")
+    elif "opponent_stack" in state_dict:
         lines.append(f"Opponent Stack: {state_dict['opponent_stack']}")
 
     if "current_bet" in state_dict:

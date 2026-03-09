@@ -17,6 +17,7 @@ class Player:
     stack: int
     hole_cards: list[Card] = field(default_factory=list)
     current_bet: int = 0
+    total_invested: int = 0
     is_active: bool = True
     has_folded: bool = False
     is_all_in: bool = False
@@ -26,6 +27,7 @@ class Player:
         actual = min(amount, self.stack)
         self.stack -= actual
         self.current_bet += actual
+        self.total_invested += actual
         if self.stack == 0:
             self.is_all_in = True
         return actual
@@ -35,6 +37,7 @@ class Player:
         actual = min(amount, self.stack)
         self.stack -= actual
         self.current_bet += actual
+        self.total_invested += actual
         if self.stack == 0:
             self.is_all_in = True
         return actual
@@ -48,6 +51,7 @@ class Player:
         """Reset player state for a new hand."""
         self.hole_cards = []
         self.current_bet = 0
+        self.total_invested = 0
         self.is_active = self.stack > 0
         self.has_folded = False
         self.is_all_in = False

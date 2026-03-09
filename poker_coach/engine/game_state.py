@@ -53,15 +53,17 @@ class GameState:
             if p.is_active:
                 p.hole_cards = self.deck.deal(2)
 
-        # Post blinds
+        # Post blinds — skip inactive (busted) players
         num = len(self.players)
-        if num == 2:
-            # Heads-up: BTN posts SB, other posts BB
+        active_count = sum(1 for p in self.players if p.is_active)
+
+        if active_count == 2:
+            # Heads-up: BTN posts SB, other active player posts BB
             sb_seat = self.button_index
-            bb_seat = (self.button_index + 1) % num
+            bb_seat = self._next_active_seat(sb_seat)
         else:
-            sb_seat = (self.button_index + 1) % num
-            bb_seat = (self.button_index + 2) % num
+            sb_seat = self._next_active_seat(self.button_index)
+            bb_seat = self._next_active_seat(sb_seat)
 
         sb_actual = self.players[sb_seat].post_blind(self.small_blind)
         bb_actual = self.players[bb_seat].post_blind(self.big_blind)
@@ -94,9 +96,18 @@ class GameState:
         """Return position labels for all seats."""
         return get_positions(len(self.players), self.button_index)
 
+    def _next_active_seat(self, from_seat: int) -> int:
+        """Find the next active (non-busted) seat after from_seat."""
+        num = len(self.players)
+        for i in range(1, num):
+            seat = (from_seat + i) % num
+            if self.players[seat].is_active:
+                return seat
+        return (from_seat + 1) % num  # fallback
+
     def advance_button(self) -> None:
-        """Move the button to the next seat."""
-        self.button_index = rotate_button(self.button_index, len(self.players))
+        """Move the button to the next active seat."""
+        self.button_index = self._next_active_seat(self.button_index)
 
     def to_dict(self, hero_seat: int) -> dict:
         """Return game state as a dictionary, from the hero's perspective."""

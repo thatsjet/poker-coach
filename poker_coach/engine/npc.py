@@ -154,6 +154,7 @@ def _resolve_strong(
     community_cards: list[Card],
     rng: random.Random,
     position: str,
+    big_blind: int = 10,
 ) -> NpcAction:
     """Resolve action for a strong NPC."""
     if street == "preflop":
@@ -167,10 +168,8 @@ def _resolve_strong(
                 return NpcAction(action="raise", amount=pot * 3)
             return NpcAction(action="check")
 
-        # Check if facing a raise (current_bet > big blind level)
-        # We treat current_bet > 10 as "facing a raise" (i.e., someone raised)
-        # A simpler heuristic: if current_bet > big blind (typically 10), it's a raise
-        facing_raise = current_bet > 10
+        # Facing a raise if current_bet exceeds the big blind
+        facing_raise = current_bet > big_blind
 
         if facing_raise:
             if is_three_bet:
@@ -212,13 +211,14 @@ def resolve_npc_action(
     community_cards: list[Card],
     rng: random.Random,
     position: str = "MP",
+    big_blind: int = 10,
 ) -> NpcAction:
     """Resolve an NPC's action based on their archetype."""
     if player.archetype == "weak":
         return _resolve_weak(player, street, current_bet, pot, community_cards, rng)
     elif player.archetype == "strong":
         return _resolve_strong(
-            player, street, current_bet, pot, community_cards, rng, position
+            player, street, current_bet, pot, community_cards, rng, position, big_blind
         )
     else:
         raise ValueError(f"Unknown archetype: {player.archetype}")

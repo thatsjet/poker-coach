@@ -81,40 +81,61 @@ class GameLoop:
             return self.get_preflop_action_order()
         return self.get_postflop_action_order()
 
+    def _can_act(self, player: Player) -> bool:
+        """Check if a player can act (active, not folded, not all-in, has cards)."""
+        return (
+            player.is_active
+            and not player.has_folded
+            and not player.is_all_in
+            and len(player.hole_cards) > 0
+        )
+
+    def _resolve_single_npc(self, seat: int) -> dict[str, Any] | None:
+        """Resolve a single NPC action. Returns action dict or None if skipped."""
+        player = self.game_state.players[seat]
+        if not self._can_act(player) or seat == self.hero_seat:
+            return None
+        positions = self.game_state.get_positions()
+        action = resolve_npc_action(
+            player=player,
+            street=self.game_state.street,
+            current_bet=self.game_state.current_bet,
+            pot=self.game_state.pot,
+            community_cards=self.game_state.community_cards,
+            rng=self.rng,
+            position=positions[seat],
+            big_blind=self.game_state.big_blind,
+        )
+        self._apply_action(player, action.action, action.amount)
+        return {
+            "seat": seat,
+            "name": player.name,
+            "action": action.action,
+            "amount": action.amount,
+        }
+
     def resolve_npc_actions_until_hero(self) -> list[dict[str, Any]]:
         """Resolve NPC actions in order until hero's turn. Returns action log."""
         order = self.get_action_order()
         actions: list[dict[str, Any]] = []
-        positions = self.game_state.get_positions()
         for seat in order:
-            player = self.game_state.players[seat]
-            if player.has_folded or player.is_all_in:
-                continue
             if seat == self.hero_seat:
                 break
-            action = resolve_npc_action(
-                player=player,
-                street=self.game_state.street,
-                current_bet=self.game_state.current_bet,
-                pot=self.game_state.pot,
-                community_cards=self.game_state.community_cards,
-                rng=self.rng,
-                position=positions[seat],
-            )
-            self._apply_action(player, action.action, action.amount)
-            actions.append({
-                "seat": seat,
-                "name": player.name,
-                "action": action.action,
-                "amount": action.amount,
-            })
+            result = self._resolve_single_npc(seat)
+            if result:
+                actions.append(result)
         return actions
 
     def resolve_npc_actions_after_hero(self) -> list[dict[str, Any]]:
-        """Resolve remaining NPC actions after hero."""
+        """Resolve remaining NPC actions after hero in the action order.
+
+        Implements a proper betting round: if any NPC raises, we loop back
+        through all players who still need to act (including hero via return).
+        Returns the action log and a boolean indicating if hero needs to act again.
+        """
         order = self.get_action_order()
         actions: list[dict[str, Any]] = []
-        positions = self.game_state.get_positions()
+
         hero_found = False
         for seat in order:
             if seat == self.hero_seat:
@@ -122,26 +143,47 @@ class GameLoop:
                 continue
             if not hero_found:
                 continue
-            player = self.game_state.players[seat]
-            if player.has_folded or player.is_all_in:
-                continue
-            action = resolve_npc_action(
-                player=player,
-                street=self.game_state.street,
-                current_bet=self.game_state.current_bet,
-                pot=self.game_state.pot,
-                community_cards=self.game_state.community_cards,
-                rng=self.rng,
-                position=positions[seat],
-            )
-            self._apply_action(player, action.action, action.amount)
-            actions.append({
-                "seat": seat,
-                "name": player.name,
-                "action": action.action,
-                "amount": action.amount,
-            })
+            result = self._resolve_single_npc(seat)
+            if result:
+                actions.append(result)
+
         return actions
+
+    def resolve_full_betting_round_npcs_only(self) -> list[dict[str, Any]]:
+        """Resolve a complete NPC-only betting round (when hero has folded or is all-in).
+
+        Loops until all active players have matched the current bet or checked.
+        """
+        actions: list[dict[str, Any]] = []
+        max_iterations = 20  # Safety valve
+        for _ in range(max_iterations):
+            acted_this_round = False
+            order = self.get_action_order()
+            for seat in order:
+                player = self.game_state.players[seat]
+                if not self._can_act(player):
+                    continue
+                if seat == self.hero_seat:
+                    continue
+                # Skip if already matched current bet and has acted
+                if player.current_bet == self.game_state.current_bet:
+                    continue
+                result = self._resolve_single_npc(seat)
+                if result and result["action"] in ("raise", "call"):
+                    actions.append(result)
+                    acted_this_round = True
+                elif result:
+                    actions.append(result)
+            if not acted_this_round:
+                break
+        return actions
+
+    def check_needs_hero_response(self) -> bool:
+        """Check if the hero needs to respond to a raise after them."""
+        hero = self.game_state.players[self.hero_seat]
+        if not self._can_act(hero):
+            return False
+        return hero.current_bet < self.game_state.current_bet
 
     def apply_hero_action(self, action: str, amount: int = 0) -> None:
         """Apply the hero's chosen action."""

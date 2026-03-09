@@ -123,54 +123,85 @@ def run_session(config: SessionConfig) -> None:
             # Check if hero can act
             hero = loop.game_state.players[loop.hero_seat]
             if hero.has_folded or hero.is_all_in:
-                loop.resolve_npc_actions_after_hero()
+                # Hero can't act — resolve rest of NPCs and advance
+                npc_actions = loop.resolve_full_betting_round_npcs_only()
+                for a in npc_actions:
+                    action_text = f"{a['name']} {a['action']}s"
+                    if a["amount"] > 0:
+                        action_text += f" to {a['amount']}"
+                    console.print(f"  {action_text}")
+                    hand_log_parts.append(action_text)
                 if not loop.is_hand_over() and loop.game_state.street != "showdown":
                     loop.advance_street()
                 continue
 
-            # Get hero action with validation loop
+            # Hero action loop — handles re-raises requiring hero response
             while True:
-                user_input = get_user_action()
-                action, amount = parse_user_action(user_input, state_dict)
+                # Get hero action with validation
+                while True:
+                    user_input = get_user_action()
+                    action, amount = parse_user_action(user_input, state_dict)
 
-                # Validate: can't check if there's a bet
-                to_call = loop.game_state.current_bet - hero.current_bet
-                if action == "check" and to_call > 0:
-                    console.print(
-                        "[red]You can't check — there's a bet to you. "
-                        "Call, raise, or fold.[/red]"
+                    to_call = loop.game_state.current_bet - hero.current_bet
+                    if action == "check" and to_call > 0:
+                        console.print(
+                            "[red]You can't check — there's a bet to you. "
+                            "Call, raise, or fold.[/red]"
+                        )
+                        continue
+                    break
+
+                # Apply hero action
+                loop.apply_hero_action(action, amount)
+                action_desc = f"Hero {action}s"
+                if amount > 0 and action != "fold":
+                    action_desc += f" to {amount}"
+                hand_log_parts.append(action_desc)
+
+                # Get coach evaluation (streaming)
+                state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+                state_text = format_state_for_coach(state_dict)
+                user_msg = f"I {action}"
+                if amount > 0 and action != "fold":
+                    user_msg += f" to {amount}"
+                user_msg += f". {user_input}"
+
+                console.print("[bold blue]Coach:[/bold blue] ", end="")
+                for chunk in coach.get_coaching_stream(state_text, user_message=user_msg):
+                    console.print(chunk, end="")
+                console.print()
+
+                if loop.is_hand_over():
+                    break
+
+                # Resolve NPC actions after hero
+                npc_actions = loop.resolve_npc_actions_after_hero()
+                for a in npc_actions:
+                    action_text = f"{a['name']} {a['action']}s"
+                    if a["amount"] > 0:
+                        action_text += f" to {a['amount']}"
+                    console.print(f"  {action_text}")
+                    hand_log_parts.append(action_text)
+
+                if loop.is_hand_over():
+                    break
+
+                # Check if hero needs to respond to a re-raise
+                if loop.check_needs_hero_response():
+                    state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+                    display_game_state(
+                        hero_cards=loop.game_state.players[loop.hero_seat].hole_cards,
+                        community_cards=loop.game_state.community_cards,
+                        pot=loop.game_state.pot,
+                        players_info=state_dict["players"],
+                        hero_stack=state_dict["hero_stack"],
+                        hero_position=state_dict["hero_position"],
+                        show_archetypes=config.show_archetypes,
                     )
+                    console.print("[yellow]Action is back to you.[/yellow]")
                     continue
-                break
-
-            # Apply hero action
-            loop.apply_hero_action(action, amount)
-            action_desc = f"Hero {action}s"
-            if amount > 0 and action != "fold":
-                action_desc += f" to {amount}"
-            hand_log_parts.append(action_desc)
-
-            # Get coach evaluation of hero's action (streaming)
-            state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
-            state_text = format_state_for_coach(state_dict)
-            user_msg = f"I {action}"
-            if amount > 0 and action != "fold":
-                user_msg += f" to {amount}"
-            user_msg += f". {user_input}"
-
-            console.print("[bold blue]Coach:[/bold blue] ", end="")
-            for chunk in coach.get_coaching_stream(state_text, user_message=user_msg):
-                console.print(chunk, end="")
-            console.print()
-
-            # Resolve NPC actions after hero
-            npc_actions = loop.resolve_npc_actions_after_hero()
-            for a in npc_actions:
-                action_text = f"{a['name']} {a['action']}s"
-                if a["amount"] > 0:
-                    action_text += f" to {a['amount']}"
-                console.print(f"  {action_text}")
-                hand_log_parts.append(action_text)
+                else:
+                    break
 
             if loop.is_hand_over():
                 break

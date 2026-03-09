@@ -107,16 +107,23 @@ class GameState:
         for p in self.players:
             if p.seat == hero_seat:
                 continue
+            if p.has_folded:
+                status = "folded"
+            elif p.is_all_in:
+                status = "all-in"
+            elif not p.is_active:
+                status = "out"
+            else:
+                status = "active"
             other_players.append(
                 {
                     "seat": p.seat,
                     "name": p.name,
+                    "archetype": p.archetype,
                     "position": positions[p.seat],
                     "stack": p.stack,
                     "current_bet": p.current_bet,
-                    "is_active": p.is_active,
-                    "has_folded": p.has_folded,
-                    "is_all_in": p.is_all_in,
+                    "status": status,
                 }
             )
 

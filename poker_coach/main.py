@@ -257,6 +257,31 @@ def run_session(config: SessionConfig) -> None:
         hero_stack = loop.game_state.players[loop.hero_seat].stack
         console.print(f"[bold]Your stack: {hero_stack}[/bold]\n")
 
+        # Post-hand coach reaction — acknowledge the result
+        hero = loop.game_state.players[loop.hero_seat]
+        hero_won = hero in winners
+        if not hero.has_folded:
+            outcome_text = (
+                f"Result: {'Hero wins' if hero_won else 'Hero loses'}. "
+                f"Pot was {loop.game_state.pot}. "
+                f"Hero stack: {hero_stack}."
+            )
+            outcome_prompt = (
+                "React briefly to the hand outcome. "
+                "If the player won despite bad play, acknowledge the win but explain why they got lucky. "
+                "If they lost despite good play, reassure them. "
+                "Keep it to 2-3 sentences max."
+            )
+            state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+            state_text = format_state_for_coach(state_dict)
+            console.print("[bold blue]Coach:[/bold blue] ", end="")
+            for chunk in coach.get_coaching_stream(
+                f"{state_text}\n\n{outcome_text}",
+                user_message=outcome_prompt,
+            ):
+                console.print(chunk, end="")
+            console.print("\n")
+
         hero_cards_str = format_cards(loop.game_state.players[loop.hero_seat].hole_cards)
         logger.add_hand_log(
             hand_number=hand_num,

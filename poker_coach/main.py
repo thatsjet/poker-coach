@@ -31,6 +31,21 @@ def parse_user_action(text: str, game_state_dict: dict) -> tuple[str, int]:
         return ("call", game_state_dict["current_bet"])
     if text.startswith("raise") or text.startswith("bet"):
         parts = text.split()
+        pot = game_state_dict["pot"]
+        # Handle fractional pot sizing — "half pot", "1/2 pot", "2/3 pot", "3/4 pot"
+        if "half" in parts:
+            return ("raise", pot // 2)
+        for part in parts:
+            if "/" in part:
+                try:
+                    num, den = part.split("/")
+                    frac = int(num) / int(den)
+                    return ("raise", int(pot * frac))
+                except (ValueError, ZeroDivisionError):
+                    pass
+        # Handle bare "pot" keyword — bet/raise the full pot
+        if "pot" in parts:
+            return ("raise", pot)
         for part in parts:
             if part in ("raise", "bet", "to"):
                 continue
@@ -137,10 +152,15 @@ def run_session(config: SessionConfig) -> None:
 
             # Hero action loop — handles re-raises requiring hero response
             while True:
-                # Get hero action with validation
+                # Get hero action — AI parses natural language
                 while True:
                     user_input = get_user_action()
-                    action, amount = parse_user_action(user_input, state_dict)
+                    action, amount = coach.parse_action(user_input, state_dict)
+                    console.print(
+                        f"[dim]→ {action}"
+                        f"{f' to {amount}' if amount > 0 and action not in ('fold', 'check') else ''}"
+                        f"[/dim]"
+                    )
 
                     to_call = loop.game_state.current_bet - hero.current_bet
                     if action == "check" and to_call > 0:
@@ -157,6 +177,17 @@ def run_session(config: SessionConfig) -> None:
                 if amount > 0 and action != "fold":
                     action_desc += f" to {amount}"
                 hand_log_parts.append(action_desc)
+
+                # If hero folded, get brief coach comment and end the hand
+                if action == "fold":
+                    state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+                    state_text = format_state_for_coach(state_dict)
+                    user_msg = f"I fold. {user_input}"
+                    console.print("[bold blue]Coach:[/bold blue] ", end="")
+                    for chunk in coach.get_coaching_stream(state_text, user_message=user_msg):
+                        console.print(chunk, end="")
+                    console.print()
+                    break
 
                 # Get coach evaluation (streaming)
                 state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
@@ -203,6 +234,12 @@ def run_session(config: SessionConfig) -> None:
                 else:
                     break
 
+            # If hero folded, deal remaining board for pot resolution and move on
+            if hero.has_folded:
+                while loop.game_state.street != "showdown":
+                    loop.advance_street()
+                break
+
             if loop.is_hand_over():
                 break
 
@@ -219,6 +256,31 @@ def run_session(config: SessionConfig) -> None:
 
         hero_stack = loop.game_state.players[loop.hero_seat].stack
         console.print(f"[bold]Your stack: {hero_stack}[/bold]\n")
+
+        # Post-hand coach reaction — acknowledge the result
+        hero = loop.game_state.players[loop.hero_seat]
+        hero_won = hero in winners
+        if not hero.has_folded:
+            outcome_text = (
+                f"Result: {'Hero wins' if hero_won else 'Hero loses'}. "
+                f"Pot was {loop.game_state.pot}. "
+                f"Hero stack: {hero_stack}."
+            )
+            outcome_prompt = (
+                "React briefly to the hand outcome. "
+                "If the player won despite bad play, acknowledge the win but explain why they got lucky. "
+                "If they lost despite good play, reassure them. "
+                "Keep it to 2-3 sentences max."
+            )
+            state_dict = loop.game_state.to_dict(hero_seat=loop.hero_seat)
+            state_text = format_state_for_coach(state_dict)
+            console.print("[bold blue]Coach:[/bold blue] ", end="")
+            for chunk in coach.get_coaching_stream(
+                f"{state_text}\n\n{outcome_text}",
+                user_message=outcome_prompt,
+            ):
+                console.print(chunk, end="")
+            console.print("\n")
 
         hero_cards_str = format_cards(loop.game_state.players[loop.hero_seat].hole_cards)
         logger.add_hand_log(

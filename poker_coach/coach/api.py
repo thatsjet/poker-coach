@@ -1,5 +1,7 @@
 """Claude API wrapper for poker coaching interactions."""
 
+import json
+
 import anthropic
 
 from poker_coach.coach.prompt import build_system_prompt
@@ -99,6 +101,59 @@ class CoachClient:
             {"role": "assistant", "content": reply}
         )
         return reply
+
+    def parse_action(self, user_input: str, game_state_dict: dict) -> tuple[str, int]:
+        """Use Claude to parse natural language into a structured poker action.
+
+        Returns (action, amount) where action is fold/check/call/raise.
+        """
+        prompt = (
+            "Extract the poker action from the user's input. Return ONLY valid JSON, no other text.\n\n"
+            f"Game state: pot={game_state_dict['pot']}, current_bet={game_state_dict['current_bet']}, "
+            f"hero_stack={game_state_dict['hero_stack']}, min_raise={game_state_dict['min_raise']}\n\n"
+            f"User said: \"{user_input}\"\n\n"
+            "Return JSON: {\"action\": \"fold|check|call|raise\", \"amount\": <int>}\n"
+            "Rules:\n"
+            "- fold/check: amount=0\n"
+            "- call: amount=current_bet\n"
+            "- raise/bet: amount=total bet size (e.g. 'bet the pot' means amount=pot size, "
+            "'raise to 60' means amount=60, 'bet half pot' means amount=pot/2, "
+            "'all in'/'shove'/'jam' means amount=hero_stack+current_bet)\n"
+            "- If sizing is ambiguous, pick the most standard interpretation"
+        )
+        response = self.client.messages.create(
+            model=self.model,
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.content[0].text.strip()
+        # Extract JSON from response (handle markdown code blocks)
+        if "```" in text:
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        try:
+            result = json.loads(text)
+            return (result["action"], int(result.get("amount", 0)))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            # Fallback to local parser
+            return self._fallback_parse(user_input, game_state_dict)
+
+    @staticmethod
+    def _fallback_parse(text: str, state: dict) -> tuple[str, int]:
+        """Simple fallback parser if AI parsing fails."""
+        text = text.strip().lower()
+        if "fold" in text:
+            return ("fold", 0)
+        if "check" in text:
+            return ("check", 0)
+        if "call" in text:
+            return ("call", state["current_bet"])
+        if "all in" in text or "shove" in text or "jam" in text:
+            return ("raise", state["hero_stack"] + state["current_bet"])
+        # Default to check
+        return ("check", 0)
 
     def reset_hand(self) -> None:
         """Reset conversation history between hands, keeping summaries."""

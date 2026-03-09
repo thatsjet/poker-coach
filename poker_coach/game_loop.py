@@ -127,25 +127,38 @@ class GameLoop:
         return actions
 
     def resolve_npc_actions_after_hero(self) -> list[dict[str, Any]]:
-        """Resolve remaining NPC actions after hero in the action order.
+        """Resolve remaining NPC actions after hero acts.
 
-        Implements a proper betting round: if any NPC raises, we loop back
-        through all players who still need to act (including hero via return).
-        Returns the action log and a boolean indicating if hero needs to act again.
+        Loops through all NPCs (starting after hero, wrapping around) until
+        every NPC has matched the current bet or folded. Handles re-raise wars
+        between NPCs within a single betting round.
         """
         order = self.get_action_order()
         actions: list[dict[str, Any]] = []
 
-        hero_found = False
-        for seat in order:
-            if seat == self.hero_seat:
-                hero_found = True
-                continue
-            if not hero_found:
-                continue
-            result = self._resolve_single_npc(seat)
-            if result:
-                actions.append(result)
+        # Build full-circle order starting after hero
+        hero_idx = order.index(self.hero_seat)
+        rotated = order[hero_idx + 1:] + order[:hero_idx]
+
+        has_acted: set[int] = set()
+        max_iterations = 20  # Safety valve
+        for _ in range(max_iterations):
+            acted_this_round = False
+            for seat in rotated:
+                player = self.game_state.players[seat]
+                if not self._can_act(player):
+                    continue
+                # Skip if already acted and has matched the current bet
+                if seat in has_acted and player.current_bet >= self.game_state.current_bet:
+                    continue
+                result = self._resolve_single_npc(seat)
+                if result:
+                    actions.append(result)
+                    has_acted.add(seat)
+                    if result["action"] == "raise":
+                        acted_this_round = True
+            if not acted_this_round:
+                break
 
         return actions
 
@@ -202,8 +215,11 @@ class GameLoop:
             to_put_in = amount - player.current_bet
             actual = player.place_bet(to_put_in)
             self.game_state.pot += actual
-            self.game_state.current_bet = player.current_bet
-            self.game_state.min_raise = amount
+            # Only update current_bet upward — an all-in for less
+            # shouldn't reduce the bet others face
+            if player.current_bet > self.game_state.current_bet:
+                self.game_state.current_bet = player.current_bet
+                self.game_state.min_raise = amount
         elif action == "check":
             pass
 
@@ -213,16 +229,57 @@ class GameLoop:
         return len(active) <= 1
 
     def resolve_winners(self) -> list[Player]:
-        """Determine and pay winners. Returns list of winning players."""
+        """Determine and pay winners with side pot support."""
         active = self.game_state.get_active_players()
         if len(active) == 1:
             active[0].stack += self.game_state.pot
             return active
-        winners = determine_winners(active, self.game_state.community_cards)
-        share = self.game_state.pot // len(winners)
-        for w in winners:
-            w.stack += share
-        return winners
+
+        side_pots = self._calculate_side_pots()
+        all_winners: list[Player] = []
+
+        for pot_amount, eligible in side_pots:
+            winners = determine_winners(eligible, self.game_state.community_cards)
+            share = pot_amount // len(winners)
+            for w in winners:
+                w.stack += share
+                if w not in all_winners:
+                    all_winners.append(w)
+
+        return all_winners
+
+    def _calculate_side_pots(self) -> list[tuple[int, list[Player]]]:
+        """Calculate side pots based on each player's total investment.
+
+        Returns list of (pot_amount, eligible_players) where eligible_players
+        are those who can win that pot (not folded, invested enough).
+        """
+        all_players = self.game_state.players
+        # Players who can win: not folded (includes all-in players)
+        not_folded = [p for p in all_players if not p.has_folded and p.total_invested > 0]
+
+        # Get unique investment levels from non-folded players
+        investment_levels = sorted(set(p.total_invested for p in not_folded))
+
+        pots: list[tuple[int, list[Player]]] = []
+        prev_level = 0
+        for level in investment_levels:
+            if level <= prev_level:
+                continue
+            # Each player contributes up to this level
+            pot_amount = 0
+            for p in all_players:
+                contribution = min(p.total_invested, level) - min(p.total_invested, prev_level)
+                pot_amount += contribution
+
+            # Only non-folded players who invested at least this level can win
+            eligible = [p for p in not_folded if p.total_invested >= level]
+
+            if pot_amount > 0 and eligible:
+                pots.append((pot_amount, eligible))
+            prev_level = level
+
+        return pots
 
     def advance_street(self) -> dict[str, Any]:
         """Advance to the next street and return updated game state."""
